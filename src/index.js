@@ -17,7 +17,7 @@ const TEMPERATURE = parseFloat(process.env.TEMPERATURE) || 0.0;
 // CORS configuration
 const allowedOrigins = process.env.FRONTEND_ORIGIN
   ? process.env.FRONTEND_ORIGIN.split(',').map((origin) => origin.trim())
-  : ['http://localhost:3000', 'http://localhost:5173'];
+  : ['https://gemini-brand-mention-checker-omega.vercel.app/', 'http://localhost:5173'];
 
 app.use(
   cors({
