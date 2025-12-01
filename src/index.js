@@ -125,198 +125,285 @@ function fuzzyMatch(str1, str2) {
  * Position is calculated considering the prompt context for better accuracy
  * For recommendation/list prompts, position reflects the rank/order in the list
  */
+// function findBrandMention(text, brand, prompt = '') {
+//   if (!text || !brand) {
+//     return { mentioned: false, position: 0 };
+//   }
+
+//   const brandLower = brand.toLowerCase().trim();
+//   const textLower = text.toLowerCase();
+//   const promptLower = prompt.toLowerCase();
+//   const brandTokens = brandLower.split(/\s+/).filter(token => token.length > 0);
+  
+//   // Extract all words from text for position calculation
+//   const allWords = textLower.match(/\b\w+\b/g) || [];
+  
+//   let earliestWordPosition = Infinity;
+//   let listRank = null;
+
+//   // Check if prompt is asking for recommendations/list (common patterns)
+//   const isRecommendationPrompt = /recommend|list|best|top|suggest|compare|options/i.test(promptLower);
+  
+//   // Try to find numbered list patterns (1., 2., 3., etc.)
+//   // Pattern matches: "1. **Brand Name:**" or "1. Brand Name:" etc.
+//   // More flexible pattern that handles various formats
+//   const listPatterns = [
+//     // Pattern 1: "1.  **Brand Name:**" with markdown
+//     /^\s*(\d+)\.\s+(?:\*{1,3})?\s*([^\n*:]+?)(?:\*{1,3})?\s*:?\s*(?:\n|$)/gm,
+//     // Pattern 2: "1. Brand Name:" without markdown
+//     /^\s*(\d+)\.\s+([^\n:]+?)\s*:?\s*(?:\n|$)/gm,
+//     // Pattern 3: "1. Brand Name" without colon
+//     /^\s*(\d+)\.\s+(?:\*{0,3})?\s*([^\n]+?)(?:\*{0,3})?\s*(?:\n\n|$)/gm
+//   ];
+  
+//   const listMatches = [];
+  
+//   for (const pattern of listPatterns) {
+//     pattern.lastIndex = 0;
+//     let match;
+//     while ((match = pattern.exec(text)) !== null) {
+//       const number = parseInt(match[1]);
+//       // Clean up the content - remove markdown formatting but keep the text
+//       let content = match[2].replace(/\*+/g, '').toLowerCase().trim();
+//       // Remove trailing colon if present
+//       content = content.replace(/:\s*$/, '').trim();
+      
+//       // Check if we already have this list item at this position (avoid duplicates)
+//       const exists = listMatches.some(item => 
+//         item.number === number && Math.abs(item.index - match.index) < 10
+//       );
+      
+//       if (!exists && content.length > 0) {
+//         const fullMatch = match[0].toLowerCase();
+//         listMatches.push({ number, content, fullMatch, index: match.index });
+//       }
+//     }
+//   }
+  
+//   // Sort list matches by index to ensure correct order
+//   listMatches.sort((a, b) => a.index - b.index);
+  
+//   // Remove duplicates (keep the first occurrence of each number)
+//   const seenNumbers = new Set();
+//   const uniqueListMatches = [];
+//   for (const item of listMatches) {
+//     if (!seenNumbers.has(item.number)) {
+//       seenNumbers.add(item.number);
+//       uniqueListMatches.push(item);
+//     }
+//   }
+
+//   // PRIORITY STRATEGY: For recommendation prompts, check list items FIRST
+//   // This ensures we get the correct list rank (1, 2, 3) instead of word position
+//   if (isRecommendationPrompt && uniqueListMatches.length > 0) {
+//     for (const listItem of uniqueListMatches) {
+//       // Get the full text of the list item (including the number and formatting)
+//       // Extract text from the original text at the list item position
+//       const itemStartIndex = listItem.index;
+//       // Find where this list item ends (next list item or end of text)
+//       let itemEndIndex = text.length;
+//       for (let k = 0; k < uniqueListMatches.length; k++) {
+//         if (uniqueListMatches[k].index > itemStartIndex) {
+//           itemEndIndex = uniqueListMatches[k].index;
+//           break;
+//         }
+//       }
+//       // Get the full list item text (first 500 chars to avoid getting too much)
+//       const fullItemText = text.substring(itemStartIndex, Math.min(itemStartIndex + 500, itemEndIndex)).toLowerCase();
+//       const itemContentLower = listItem.content.toLowerCase();
+      
+//       // For multi-word brands, check if all tokens appear in the list item
+//       if (brandTokens.length > 1) {
+//         // Check if all brand tokens are present in the list item content or full text
+//         const allTokensInContent = brandTokens.every(token => 
+//           itemContentLower.includes(token.toLowerCase())
+//         );
+//         const allTokensInFull = brandTokens.every(token => 
+//           fullItemText.includes(token.toLowerCase())
+//         );
+        
+//         // Also check for exact phrase match
+//         const hasExactPhrase = itemContentLower.includes(brandLower) || fullItemText.includes(brandLower);
+        
+//         if (allTokensInContent || allTokensInFull || hasExactPhrase) {
+//           listRank = listItem.number;
+//           // Also set word position for fallback
+//           if (earliestWordPosition === Infinity) {
+//             // Count words from start of text to start of this list item
+//             const textBeforeItem = textLower.substring(0, itemStartIndex);
+//             const wordsBeforeItem = textBeforeItem.match(/\b\w+\b/g) || [];
+//             // Find brand position within the list item
+//             const brandIndexInItem = fullItemText.indexOf(brandLower);
+//             if (brandIndexInItem !== -1) {
+//               const itemTextBeforeBrand = fullItemText.substring(0, brandIndexInItem);
+//               const wordsInItemBeforeBrand = itemTextBeforeBrand.match(/\b\w+\b/g) || [];
+//               earliestWordPosition = wordsBeforeItem.length + wordsInItemBeforeBrand.length + 1;
+//             } else {
+//               // If exact phrase not found, just use the start of the list item
+//               earliestWordPosition = wordsBeforeItem.length + 1;
+//             }
+//           }
+//           break; // Found it, stop searching
+//         }
+//       } else {
+//         // Single-word brand
+//         if (itemContentLower.includes(brandLower) || fullItemText.includes(brandLower) || 
+//             fuzzyMatch(itemContentLower, brandLower)) {
+//           listRank = listItem.number;
+//           if (earliestWordPosition === Infinity) {
+//             const textBeforeItem = textLower.substring(0, itemStartIndex);
+//             const wordsBeforeItem = textBeforeItem.match(/\b\w+\b/g) || [];
+//             earliestWordPosition = wordsBeforeItem.length + 1;
+//           }
+//           break;
+//         }
+//       }
+//     }
+//   }
+
+//   // Strategy 1: For multi-word brands, find the complete phrase as sequential words
+//   // Only do this if we haven't found a list rank yet
+//   if (brandTokens.length > 1 && listRank === null) {
+//     // Try to find the brand phrase as sequential words
+//     for (let i = 0; i <= allWords.length - brandTokens.length; i++) {
+//       let allMatch = true;
+//       for (let j = 0; j < brandTokens.length; j++) {
+//         if (i + j >= allWords.length || !fuzzyMatch(allWords[i + j], brandTokens[j])) {
+//           allMatch = false;
+//           break;
+//         }
+//       }
+//       if (allMatch) {
+//         earliestWordPosition = i + 1;
+//         break;
+//       }
+//     }
+    
+//     // Fallback: exact phrase match
+//     if (earliestWordPosition === Infinity) {
+//       const exactPhraseIndex = textLower.indexOf(brandLower);
+//       if (exactPhraseIndex !== -1) {
+//         const textBefore = textLower.substring(0, exactPhraseIndex);
+//         const wordsBefore = textBefore.match(/\b\w+\b/g) || [];
+//         earliestWordPosition = wordsBefore.length + 1;
+//       }
+//     }
+//   } else if (brandTokens.length === 1 && listRank === null) {
+//     // Strategy 2: For single-word brands
+//     for (let i = 0; i < allWords.length; i++) {
+//       const word = allWords[i];
+//       if (fuzzyMatch(word, brandLower)) {
+//         earliestWordPosition = i + 1;
+//         break;
+//       }
+//     }
+//   }
+
+//   // Strategy 3: Final fallback
+//   if (earliestWordPosition === Infinity && textLower.includes(brandLower)) {
+//     const index = textLower.indexOf(brandLower);
+//     const textBefore = textLower.substring(0, index);
+//     const wordsBefore = textBefore.match(/\b\w+\b/g) || [];
+//     earliestWordPosition = wordsBefore.length + 1;
+//   }
+
+//   // For recommendation prompts, prefer list rank over word position if available
+//   // This gives more meaningful position (1st, 2nd, 3rd recommendation)
+//   const finalPosition = (isRecommendationPrompt && listRank !== null) 
+//     ? listRank 
+//     : (earliestWordPosition !== Infinity ? earliestWordPosition : 0);
+
+//   return earliestWordPosition !== Infinity || listRank !== null
+//     ? { mentioned: true, position: finalPosition }
+//     : { mentioned: false, position: 0 };
+// }
+
 function findBrandMention(text, brand, prompt = '') {
   if (!text || !brand) {
     return { mentioned: false, position: 0 };
   }
+  console.log("new code")
 
   const brandLower = brand.toLowerCase().trim();
-  const textLower = text.toLowerCase();
   const promptLower = prompt.toLowerCase();
-  const brandTokens = brandLower.split(/\s+/).filter(token => token.length > 0);
-  
-  // Extract all words from text for position calculation
-  const allWords = textLower.match(/\b\w+\b/g) || [];
-  
-  let earliestWordPosition = Infinity;
-  let listRank = null;
 
-  // Check if prompt is asking for recommendations/list (common patterns)
-  const isRecommendationPrompt = /recommend|list|best|top|suggest|compare|options/i.test(promptLower);
-  
-  // Try to find numbered list patterns (1., 2., 3., etc.)
-  // Pattern matches: "1. **Brand Name:**" or "1. Brand Name:" etc.
-  // More flexible pattern that handles various formats
-  const listPatterns = [
-    // Pattern 1: "1.  **Brand Name:**" with markdown
-    /^\s*(\d+)\.\s+(?:\*{1,3})?\s*([^\n*:]+?)(?:\*{1,3})?\s*:?\s*(?:\n|$)/gm,
-    // Pattern 2: "1. Brand Name:" without markdown
-    /^\s*(\d+)\.\s+([^\n:]+?)\s*:?\s*(?:\n|$)/gm,
-    // Pattern 3: "1. Brand Name" without colon
-    /^\s*(\d+)\.\s+(?:\*{0,3})?\s*([^\n]+?)(?:\*{0,3})?\s*(?:\n\n|$)/gm
-  ];
-  
-  const listMatches = [];
-  
-  for (const pattern of listPatterns) {
-    pattern.lastIndex = 0;
-    let match;
-    while ((match = pattern.exec(text)) !== null) {
-      const number = parseInt(match[1]);
-      // Clean up the content - remove markdown formatting but keep the text
-      let content = match[2].replace(/\*+/g, '').toLowerCase().trim();
-      // Remove trailing colon if present
-      content = content.replace(/:\s*$/, '').trim();
-      
-      // Check if we already have this list item at this position (avoid duplicates)
-      const exists = listMatches.some(item => 
-        item.number === number && Math.abs(item.index - match.index) < 10
-      );
-      
-      if (!exists && content.length > 0) {
-        const fullMatch = match[0].toLowerCase();
-        listMatches.push({ number, content, fullMatch, index: match.index });
+  const isRecommendationPrompt =
+    /recommend|list|best|top|suggest|options|rank/i.test(promptLower);
+
+  // STEP 1 — Split into lines
+  const lines = text.split("\n").map((l) => l.trim());
+
+  // STEP 2 — Extract REAL ranked CRM list items
+  // Ignore category lines like:
+  // "1. Best Overall Value"
+  const crmList = [];
+
+  lines.forEach((line) => {
+    // --- Match patterns for list items ---
+    // 1. Zoho CRM
+    // 1. **Zoho CRM:**
+    // * Zoho CRM
+    // - Zoho CRM
+    const numbered = line.match(/^\d+\.\s+(.*)/);
+    const bullet = line.match(/^[*-]\s+(.*)/);
+
+    let item = null;
+    if (numbered) item = numbered[1];
+    if (bullet) item = bullet[1];
+
+    if (item) {
+      // Clean markdown and colon
+      let cleaned = item
+        .replace(/\*\*/g, "")
+        .replace(/:$/, "")
+        .trim()
+        .toLowerCase();
+
+      // IGNORE category headings like:
+      // "best overall value & ease of use"
+      if (
+        cleaned.includes("best ") ||
+        cleaned.includes("overall") ||
+        cleaned.includes("value") ||
+        cleaned.includes("ease of use") ||
+        cleaned.includes("focus") ||
+        cleaned.includes("team")
+      ) {
+        return;
+      }
+
+      // Only store real CRM names (Zoho CRM, HubSpot CRM, Freshsales…)
+      if (cleaned.length >= 3) {
+        crmList.push(cleaned);
       }
     }
-  }
-  
-  // Sort list matches by index to ensure correct order
-  listMatches.sort((a, b) => a.index - b.index);
-  
-  // Remove duplicates (keep the first occurrence of each number)
-  const seenNumbers = new Set();
-  const uniqueListMatches = [];
-  for (const item of listMatches) {
-    if (!seenNumbers.has(item.number)) {
-      seenNumbers.add(item.number);
-      uniqueListMatches.push(item);
-    }
-  }
+  });
 
-  // PRIORITY STRATEGY: For recommendation prompts, check list items FIRST
-  // This ensures we get the correct list rank (1, 2, 3) instead of word position
-  if (isRecommendationPrompt && uniqueListMatches.length > 0) {
-    for (const listItem of uniqueListMatches) {
-      // Get the full text of the list item (including the number and formatting)
-      // Extract text from the original text at the list item position
-      const itemStartIndex = listItem.index;
-      // Find where this list item ends (next list item or end of text)
-      let itemEndIndex = text.length;
-      for (let k = 0; k < uniqueListMatches.length; k++) {
-        if (uniqueListMatches[k].index > itemStartIndex) {
-          itemEndIndex = uniqueListMatches[k].index;
-          break;
-        }
-      }
-      // Get the full list item text (first 500 chars to avoid getting too much)
-      const fullItemText = text.substring(itemStartIndex, Math.min(itemStartIndex + 500, itemEndIndex)).toLowerCase();
-      const itemContentLower = listItem.content.toLowerCase();
-      
-      // For multi-word brands, check if all tokens appear in the list item
-      if (brandTokens.length > 1) {
-        // Check if all brand tokens are present in the list item content or full text
-        const allTokensInContent = brandTokens.every(token => 
-          itemContentLower.includes(token.toLowerCase())
-        );
-        const allTokensInFull = brandTokens.every(token => 
-          fullItemText.includes(token.toLowerCase())
-        );
-        
-        // Also check for exact phrase match
-        const hasExactPhrase = itemContentLower.includes(brandLower) || fullItemText.includes(brandLower);
-        
-        if (allTokensInContent || allTokensInFull || hasExactPhrase) {
-          listRank = listItem.number;
-          // Also set word position for fallback
-          if (earliestWordPosition === Infinity) {
-            // Count words from start of text to start of this list item
-            const textBeforeItem = textLower.substring(0, itemStartIndex);
-            const wordsBeforeItem = textBeforeItem.match(/\b\w+\b/g) || [];
-            // Find brand position within the list item
-            const brandIndexInItem = fullItemText.indexOf(brandLower);
-            if (brandIndexInItem !== -1) {
-              const itemTextBeforeBrand = fullItemText.substring(0, brandIndexInItem);
-              const wordsInItemBeforeBrand = itemTextBeforeBrand.match(/\b\w+\b/g) || [];
-              earliestWordPosition = wordsBeforeItem.length + wordsInItemBeforeBrand.length + 1;
-            } else {
-              // If exact phrase not found, just use the start of the list item
-              earliestWordPosition = wordsBeforeItem.length + 1;
-            }
-          }
-          break; // Found it, stop searching
-        }
-      } else {
-        // Single-word brand
-        if (itemContentLower.includes(brandLower) || fullItemText.includes(brandLower) || 
-            fuzzyMatch(itemContentLower, brandLower)) {
-          listRank = listItem.number;
-          if (earliestWordPosition === Infinity) {
-            const textBeforeItem = textLower.substring(0, itemStartIndex);
-            const wordsBeforeItem = textBeforeItem.match(/\b\w+\b/g) || [];
-            earliestWordPosition = wordsBeforeItem.length + 1;
-          }
-          break;
-        }
+  // STEP 3 — Rank-based matching (primary)
+  if (isRecommendationPrompt && crmList.length > 0) {
+    for (let i = 0; i < crmList.length; i++) {
+      if (crmList[i].includes(brandLower)) {
+        return { mentioned: true, position: i + 1 };
       }
     }
   }
 
-  // Strategy 1: For multi-word brands, find the complete phrase as sequential words
-  // Only do this if we haven't found a list rank yet
-  if (brandTokens.length > 1 && listRank === null) {
-    // Try to find the brand phrase as sequential words
-    for (let i = 0; i <= allWords.length - brandTokens.length; i++) {
-      let allMatch = true;
-      for (let j = 0; j < brandTokens.length; j++) {
-        if (i + j >= allWords.length || !fuzzyMatch(allWords[i + j], brandTokens[j])) {
-          allMatch = false;
-          break;
-        }
-      }
-      if (allMatch) {
-        earliestWordPosition = i + 1;
-        break;
-      }
-    }
-    
-    // Fallback: exact phrase match
-    if (earliestWordPosition === Infinity) {
-      const exactPhraseIndex = textLower.indexOf(brandLower);
-      if (exactPhraseIndex !== -1) {
-        const textBefore = textLower.substring(0, exactPhraseIndex);
-        const wordsBefore = textBefore.match(/\b\w+\b/g) || [];
-        earliestWordPosition = wordsBefore.length + 1;
-      }
-    }
-  } else if (brandTokens.length === 1 && listRank === null) {
-    // Strategy 2: For single-word brands
-    for (let i = 0; i < allWords.length; i++) {
-      const word = allWords[i];
-      if (fuzzyMatch(word, brandLower)) {
-        earliestWordPosition = i + 1;
-        break;
-      }
-    }
+  // STEP 4 — Fallback mode: find in full text
+  const textLower = text.toLowerCase();
+  const index = textLower.indexOf(brandLower);
+
+  if (index !== -1) {
+    // Convert character index → word-ish position
+    const before = textLower.slice(0, index);
+    const words = before.split(/\s+/).filter((w) => w.length > 0);
+    return { mentioned: true, position: words.length + 1 };
   }
 
-  // Strategy 3: Final fallback
-  if (earliestWordPosition === Infinity && textLower.includes(brandLower)) {
-    const index = textLower.indexOf(brandLower);
-    const textBefore = textLower.substring(0, index);
-    const wordsBefore = textBefore.match(/\b\w+\b/g) || [];
-    earliestWordPosition = wordsBefore.length + 1;
-  }
-
-  // For recommendation prompts, prefer list rank over word position if available
-  // This gives more meaningful position (1st, 2nd, 3rd recommendation)
-  const finalPosition = (isRecommendationPrompt && listRank !== null) 
-    ? listRank 
-    : (earliestWordPosition !== Infinity ? earliestWordPosition : 0);
-
-  return earliestWordPosition !== Infinity || listRank !== null
-    ? { mentioned: true, position: finalPosition }
-    : { mentioned: false, position: 0 };
+  // Default
+  return { mentioned: false, position: 0 };
 }
+
+
 
 /**
  * Analyze sentiment of brand mentions in the response text
@@ -435,7 +522,7 @@ app.get('/', (req, res) => {
 // Main API endpoint
 app.post('/api/check', async (req, res) => {
   const { prompt, brand } = req.body;
-
+ console.log("here.........")
   if (!prompt || !brand) {
     return res.status(400).json({
       error: 'Both prompt and brand are required',
@@ -472,7 +559,7 @@ app.post('/api/check', async (req, res) => {
 
     // Pass prompt context to help determine position more accurately
     const { mentioned, position } = findBrandMention(responseText, brand, prompt);
-
+          
     // Analyze sentiment of brand mentions
     const sentimentAnalysis = analyzeBrandSentiment(responseText, brand);
 
