@@ -318,90 +318,142 @@ function fuzzyMatch(str1, str2) {
 //     : { mentioned: false, position: 0 };
 // }
 
-function findBrandMention(text, brand, prompt = '') {
-  if (!text || !brand) {
-    return { mentioned: false, position: 0 };
-  }
-  console.log("new code")
+function findBrandMention(text, brand, prompt = "") {
+  if (!text || !brand) return { mentioned: false, position: 0 };
 
   const brandLower = brand.toLowerCase().trim();
-  const promptLower = prompt.toLowerCase();
-
-  const isRecommendationPrompt =
-    /recommend|list|best|top|suggest|options|rank/i.test(promptLower);
-
-  // STEP 1 — Split into lines
-  const lines = text.split("\n").map((l) => l.trim());
-
-  // STEP 2 — Extract REAL ranked CRM list items
-  // Ignore category lines like:
-  // "1. Best Overall Value"
-  const crmList = [];
-
-  lines.forEach((line) => {
-    // --- Match patterns for list items ---
-    // 1. Zoho CRM
-    // 1. **Zoho CRM:**
-    // * Zoho CRM
-    // - Zoho CRM
-    const numbered = line.match(/^\d+\.\s+(.*)/);
-    const bullet = line.match(/^[*-]\s+(.*)/);
-
-    let item = null;
-    if (numbered) item = numbered[1];
-    if (bullet) item = bullet[1];
-
-    if (item) {
-      // Clean markdown and colon
-      let cleaned = item
-        .replace(/\*\*/g, "")
-        .replace(/:$/, "")
-        .trim()
-        .toLowerCase();
-
-      // IGNORE category headings like:
-      // "best overall value & ease of use"
-      if (
-        cleaned.includes("best ") ||
-        cleaned.includes("overall") ||
-        cleaned.includes("value") ||
-        cleaned.includes("ease of use") ||
-        cleaned.includes("focus") ||
-        cleaned.includes("team")
-      ) {
-        return;
-      }
-
-      // Only store real CRM names (Zoho CRM, HubSpot CRM, Freshsales…)
-      if (cleaned.length >= 3) {
-        crmList.push(cleaned);
-      }
-    }
-  });
-
-  // STEP 3 — Rank-based matching (primary)
-  if (isRecommendationPrompt && crmList.length > 0) {
-    for (let i = 0; i < crmList.length; i++) {
-      if (crmList[i].includes(brandLower)) {
-        return { mentioned: true, position: i + 1 };
-      }
-    }
-  }
-
-  // STEP 4 — Fallback mode: find in full text
   const textLower = text.toLowerCase();
-  const index = textLower.indexOf(brandLower);
+  const brandTokens = brandLower.split(/\s+/).filter(token => token.length > 0);
+  const lines = text.split("\n").map(l => l.trim());
 
-  if (index !== -1) {
-    // Convert character index → word-ish position
-    const before = textLower.slice(0, index);
-    const words = before.split(/\s+/).filter((w) => w.length > 0);
-    return { mentioned: true, position: words.length + 1 };
+  const isRecommendationPrompt = /recommend|list|best|top|suggest|compare|options|good|cost|effective/i.test(prompt.toLowerCase());
+  let currentCategoryRank = 0;
+
+  // MAIN SEARCH LOOP
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const lineLower = line.toLowerCase();
+
+    // CASE 1: Category headings - handle ** markdown prefix
+    // Patterns: "**1.  Best Overall Value & Ease of Use:**" or "1.  Best Overall Value..."
+    const categoryPattern = /^\*{0,3}(\d+)\.\s*\*{0,3}\s*(.+?)\*{0,3}\s*:?\s*$/;
+    const categoryMatch = line.match(categoryPattern);
+    
+    if (categoryMatch) {
+      const catNumber = parseInt(categoryMatch[1]);
+      const catContent = categoryMatch[2].replace(/\*+/g, '').trim().toLowerCase();
+
+      // Check if this looks like a category heading (not a product name)
+      const isCategory = catContent.length > 25 ||
+                         /best|top|recommended|key|important|consideration|factor|overall|value|ease|use|for|focused|simplicity|mobile|sales|teams|notable|other/i.test(catContent);
+
+      if (isCategory) {
+        currentCategoryRank = catNumber;
+        continue;
+      }
+    }
+
+    // CASE 2: Direct numbered list items - "1. Mailchimp:" or "1.  **Mailchimp:**"
+    const numberedPatterns = [
+      /^\*{0,3}(\d+)\.\s*\*{0,3}\s*([^*:\n]+?)\*{0,3}\s*:?\s*$/,  // "**1. **Mailchimp:**"
+      /^(\d+)\.\s+\*{0,3}\s*([^*:\n]+?)\*{0,3}\s*:?\s*$/,          // "1.  **Mailchimp:**"
+      /^(\d+)\.\s*\*{0,3}\s*([^*:\n]+?)\*{0,3}\s*:?\s*$/           // "1.**Mailchimp:**"
+    ];
+
+    let numberedMatch = null;
+    for (const pattern of numberedPatterns) {
+      numberedMatch = line.match(pattern);
+      if (numberedMatch) break;
+    }
+
+    if (numberedMatch) {
+      const number = parseInt(numberedMatch[1]);
+      let content = numberedMatch[2].replace(/\*+/g, '').trim().toLowerCase();
+
+      // Check if this is actually a category heading (not a product)
+      const isCategoryHeading = content.length > 25 ||
+                                /best|top|recommended|key|important|consideration|factor|overall|value|ease|use|for|focused|simplicity|mobile|sales|teams|notable|other|considerations/i.test(content);
+
+      if (!isCategoryHeading && content.length > 0 && content.length < 100) {
+        // Check if this line contains the brand
+        const exactMatch = content === brandLower;
+        const includesMatch = content.includes(brandLower);
+        const tokensMatch = brandTokens.length > 0 && brandTokens.every(token => content.includes(token));
+        const fuzzyMatchResult = fuzzyMatch(content, brandLower);
+
+        const brandMatch = exactMatch || includesMatch || tokensMatch || fuzzyMatchResult;
+
+        if (brandMatch) {
+          // RETURN IMMEDIATELY with the list number
+          return { mentioned: true, position: number };
+        }
+
+        currentCategoryRank = 0;  // Reset category when we hit new numbered items
+      }
+      continue;
+    }
+
+    // CASE 3: Bullet point brands under categories - "*   **Zoho CRM:**"
+    if (currentCategoryRank > 0) {
+      // More robust pattern for bullet points with markdown
+      const bulletMatch = line.match(/^[*-]\s*\*{0,2}\s*([^*:\n]+?)\*{0,2}\s*:?\s*$/);
+
+      if (bulletMatch) {
+        let rawName = bulletMatch[1].trim().toLowerCase();
+
+        // Exclude sub-bullets and section headers
+        if (/why it's good|strengths|pros|cons|features|pricing|cost|weaknesses|best for|list management|email design|automation|analytics|deliverability|integration|customer support|comprehensive|affordable|ease of use|integration|mobile|built-in|ai-powered|transactional/i.test(rawName)) {
+          continue;
+        }
+
+        // Only process if it looks like a brand name
+        if (rawName.length > 0 && rawName.length < 50 && !rawName.includes('.') && !rawName.includes(',')) {
+          // Check if this is the brand we're looking for
+          const exactMatch = rawName === brandLower;
+          const includesMatch = rawName.includes(brandLower);
+          const tokensMatch = brandTokens.length > 0 && brandTokens.every(token => rawName.includes(token));
+          const fuzzyMatchResult = fuzzyMatch(rawName, brandLower);
+
+          const brandMatch = exactMatch || includesMatch || tokensMatch || fuzzyMatchResult;
+
+          if (brandMatch) {
+            // RETURN IMMEDIATELY with the category position
+            return { mentioned: true, position: currentCategoryRank };
+          }
+        }
+      }
+    }
   }
 
-  // Default
+  // FALLBACK: Only if no structured match found
+  if (textLower.includes(brandLower)) {
+    // Try to extract a position from context
+    const idx = textLower.indexOf(brandLower);
+    const numberedMatches = [...text.matchAll(/^(\d+)\./gm)];
+    
+    for (let i = numberedMatches.length - 1; i >= 0; i--) {
+      if (numberedMatches[i].index < idx) {
+        const position = parseInt(numberedMatches[i][1]);
+        if (position > 0) {
+          return { mentioned: true, position };
+        }
+      }
+    }
+
+    // Last resort: just confirm it was mentioned
+    return { mentioned: true, position: 1 };
+  }
+
   return { mentioned: false, position: 0 };
 }
+
+
+
+
+
+
+
+
 
 
 
@@ -522,7 +574,7 @@ app.get('/', (req, res) => {
 // Main API endpoint
 app.post('/api/check', async (req, res) => {
   const { prompt, brand } = req.body;
- console.log("here.........")
+ 
   if (!prompt || !brand) {
     return res.status(400).json({
       error: 'Both prompt and brand are required',
